@@ -191,8 +191,9 @@ auditLog({
     days: 90,                // delete entries older than N days
   },
 
-  // intercept before write — return null to suppress
-  beforeLog: async (entry) => {
+  // intercept before write — return null to suppress. Receives the endpoint
+  // ctx as a second argument, so you can resolve the session or read the request.
+  beforeLog: async (entry, ctx) => {
     if (entry.userId === "service-account") return null;
     return entry;
   },
@@ -207,6 +208,29 @@ auditLog({
 ```
 
 To override the DB model name, pass `schema: { auditLog: { modelName: "your_table_name" } }`.
+
+## Adding additional metadata to log entries
+
+`beforeLog` is the injection point for extra per-entry data. Because it receives the
+endpoint `ctx`, you can resolve the session and stash a value such as the active
+organization into `metadata` — which is stored as JSON and returned intact:
+
+```ts
+import { getSessionFromCtx } from "better-auth/api";
+
+auditLog({
+  beforeLog: async (entry, ctx) => {
+    const session = await getSessionFromCtx(ctx);
+    return {
+      ...entry,
+      metadata: {
+        ...entry.metadata,
+        activeOrganizationId: session?.session?.activeOrganizationId ?? null,
+      },
+    };
+  },
+});
+```
 
 ## Custom storage
 
