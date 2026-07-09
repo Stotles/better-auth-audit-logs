@@ -67,7 +67,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "better-auth": "^1.5.5",
+    "better-auth": "^1.7.0-rc.1",
     "zod": "^4.3.6"
   }
 }

@@ -36,6 +36,7 @@ export function createInsertLogEndpoint(opts: ResolvedOptions, modelName: string
           metadata,
           options: opts,
           authOptions: ctx.context.options,
+          logger: ctx.context.logger,
         });
 
         if (severity) {
