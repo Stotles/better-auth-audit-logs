@@ -22,6 +22,7 @@ interface BuildParams {
   pathConfig?: PathConfig;
   options: ResolvedOptions;
   authOptions: GenericEndpointContext["context"]["options"];
+  logger?: GenericEndpointContext["context"]["logger"];
 }
 
 export async function buildLogEntry(
@@ -42,6 +43,7 @@ export async function buildLogEntry(
     captureOpts.ipAddress !== false ? params.request : undefined,
     captureOpts.userAgent !== false ? params.headers : undefined,
     params.authOptions,
+    params.logger,
   );
 
   let metadata = params.metadata ?? {};
@@ -72,6 +74,7 @@ export async function buildLogEntryFromAction(
     params.options.capture.ipAddress !== false ? params.request : undefined,
     params.options.capture.userAgent !== false ? params.headers : undefined,
     params.authOptions,
+    params.logger,
   );
 
   let metadata = params.metadata ?? {};
@@ -101,7 +104,7 @@ export async function writeEntry(
     let finalEntry = entry;
 
     if (opts.beforeLog) {
-      const modified = await opts.beforeLog(finalEntry);
+      const modified = await opts.beforeLog(finalEntry, ctx);
       if (modified === null) return;
 
       const validated = validateEntry(modified, ctx.context.logger);

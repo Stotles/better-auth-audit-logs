@@ -24,6 +24,7 @@ export function createBeforeHooks(opts: ResolvedOptions, modelName: string) {
             pathConfig,
             options: opts,
             authOptions: ctx.context.options,
+            logger: ctx.context.logger,
           });
 
           await writeEntry(ctx, entry, opts, modelName);

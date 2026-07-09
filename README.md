@@ -1,8 +1,8 @@
-# better-auth-audit-logs
+# @stotles/better-auth-audit-logs
 
-[![npm version](https://img.shields.io/npm/v/better-auth-audit-logs)](https://www.npmjs.com/package/better-auth-audit-logs)
-[![npm downloads](https://img.shields.io/npm/dm/better-auth-audit-logs)](https://www.npmjs.com/package/better-auth-audit-logs)
-[![license](https://img.shields.io/npm/l/better-auth-audit-logs)](https://github.com/ejirocodes/better-auth-audit-logs/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@stotles/better-auth-audit-logs)](https://www.npmjs.com/package/@stotles/better-auth-audit-logs)
+[![npm downloads](https://img.shields.io/npm/dm/@stotles/better-auth-audit-logs)](https://www.npmjs.com/package/@stotles/better-auth-audit-logs)
+[![license](https://img.shields.io/npm/l/@stotles/better-auth-audit-logs)](https://github.com/Stotles/better-auth-audit-logs/blob/main/LICENSE)
 
 Audit log plugin for [Better Auth](https://better-auth.com). Automatically captures auth events with IP, user agent, and severity — zero config required.
 
@@ -11,12 +11,12 @@ Audit log plugin for [Better Auth](https://better-auth.com). Automatically captu
 ## Quick start
 
 ```bash
-npm install better-auth-audit-logs
+npm install @stotles/better-auth-audit-logs
 ```
 
 ```ts
 import { betterAuth } from "better-auth";
-import { auditLog } from "better-auth-audit-logs";
+import { auditLog } from "@stotles/better-auth-audit-logs";
 
 export const auth = betterAuth({
   plugins: [auditLog()],
@@ -112,7 +112,7 @@ db.auditLog.createIndex({ createdAt: 1 })
 
 ```ts
 import { createAuthClient } from "better-auth/client";
-import { auditLogClient } from "better-auth-audit-logs/client";
+import { auditLogClient } from "@stotles/better-auth-audit-logs/client";
 
 export const authClient = createAuthClient({
   plugins: [auditLogClient()],
@@ -191,8 +191,9 @@ auditLog({
     days: 90,                // delete entries older than N days
   },
 
-  // intercept before write — return null to suppress
-  beforeLog: async (entry) => {
+  // intercept before write — return null to suppress. Receives the endpoint
+  // ctx as a second argument, so you can resolve the session or read the request.
+  beforeLog: async (entry, ctx) => {
     if (entry.userId === "service-account") return null;
     return entry;
   },
@@ -208,12 +209,35 @@ auditLog({
 
 To override the DB model name, pass `schema: { auditLog: { modelName: "your_table_name" } }`.
 
+## Adding additional metadata to log entries
+
+`beforeLog` is the injection point for extra per-entry data. Because it receives the
+endpoint `ctx`, you can resolve the session and stash a value such as the active
+organization into `metadata` — which is stored as JSON and returned intact:
+
+```ts
+import { getSessionFromCtx } from "better-auth/api";
+
+auditLog({
+  beforeLog: async (entry, ctx) => {
+    const session = await getSessionFromCtx(ctx);
+    return {
+      ...entry,
+      metadata: {
+        ...entry.metadata,
+        activeOrganizationId: session?.session?.activeOrganizationId ?? null,
+      },
+    };
+  },
+});
+```
+
 ## Custom storage
 
 Route writes to any external backend instead of Better Auth's database:
 
 ```ts
-import { auditLog, type AuditLogStorage } from "better-auth-audit-logs";
+import { auditLog, type AuditLogStorage } from "@stotles/better-auth-audit-logs";
 
 const clickhouse: AuditLogStorage = {
   async write(entry) {
@@ -233,7 +257,7 @@ auditLog({ storage: clickhouse })
 A `MemoryStorage` adapter is included for testing:
 
 ```ts
-import { auditLog, MemoryStorage } from "better-auth-audit-logs";
+import { auditLog, MemoryStorage } from "@stotles/better-auth-audit-logs";
 
 const storage = new MemoryStorage();
 const auth = betterAuth({ plugins: [auditLog({ storage })] });
