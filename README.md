@@ -6,7 +6,7 @@
 
 Audit log plugin for [Better Auth](https://better-auth.com). Automatically captures auth events with IP, user agent, and severity — zero config required.
 
-**Requires** `better-auth >= 1.0.0` and `typescript >= 5`.
+**Requires** `better-auth >= 1.5.0` and `typescript >= 5`.
 
 ## Quick start
 
@@ -313,6 +313,10 @@ auditLog({
 ## Acknowledgments
 
 This plugin was inspired by the audit log design shared by [@Re4GD](https://github.com/Re4GD) in [better-auth/better-auth#1184](https://github.com/better-auth/better-auth/issues/1184). Additional inspiration from [@issamwahbi](https://github.com/issamwahbi) ([#3592](https://github.com/better-auth/better-auth/discussions/3592)) and [@ItsProless](https://github.com/ItsProless) ([#7952](https://github.com/better-auth/better-auth/discussions/7952)).
+
+This plugin was originally maintained by [@ejirocodes](https://github.com/ejirocodes/better-auth-audit-logs).
+
+This fork is maintained by [@Stotles](https://github.com/Stotles).
 
 ## License
 
