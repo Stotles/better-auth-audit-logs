@@ -1,4 +1,5 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { APIError } from "better-auth/api";
 import { MemoryStorage } from "../src/adapters/memory";
 import { auditLog } from "../src/plugin";
 import type { HookEndpointContext } from "@better-auth/core";
@@ -66,6 +67,80 @@ describe("hook execution", () => {
     expect(storage.entries).toHaveLength(1);
     expect(storage.entries[0]?.status).toBe("failed");
     expect(storage.entries[0]?.metadata).toHaveProperty("error");
+  });
+
+  test("after hook records success for a redirect to the app (not a failure)", async () => {
+    const plugin = auditLog({ storage });
+    const [afterHook] = plugin.hooks.after;
+
+    // better-auth throws a 302 to complete a flow; that's a success, not a failure.
+    const redirect = new APIError("FOUND", undefined, new Headers({ location: "/dashboard/error-corp" }));
+    const arg = makeHandlerArg("/callback/oauth2", { returned: redirect });
+
+    await (afterHook!.handler as Function)(arg);
+
+    expect(storage.entries).toHaveLength(1);
+    expect(storage.entries[0]?.status).toBe("success");
+    expect(storage.entries[0]?.metadata).not.toHaveProperty("error");
+  });
+
+  test("after hook records failed with the error code for a redirect to the error page", async () => {
+    const plugin = auditLog({ storage });
+    const [afterHook] = plugin.hooks.after;
+
+    // A redirect carrying ?error=<code> is a failure; the code/description are pulled from the URL.
+    const redirect = new APIError(
+      "FOUND",
+      undefined,
+      new Headers({ location: "/error?error=access_denied&error_description=request+denied" }),
+    );
+    const arg = makeHandlerArg("/callback/oauth2", { returned: redirect });
+
+    await (afterHook!.handler as Function)(arg);
+
+    expect(storage.entries).toHaveLength(1);
+    expect(storage.entries[0]?.status).toBe("failed");
+    expect(storage.entries[0]?.metadata).toMatchObject({
+      error: { code: "access_denied", message: "request denied" },
+    });
+  });
+
+  test("after hook omits the message for an error redirect that carries only a code", async () => {
+    const plugin = auditLog({ storage });
+    const [afterHook] = plugin.hooks.after;
+
+    // Many OAuth error redirects are just ?error=<code> with no error_description.
+    const redirect = new APIError(
+      "FOUND",
+      undefined,
+      new Headers({ location: "/error?error=access_denied" }),
+    );
+    const arg = makeHandlerArg("/callback/oauth2", { returned: redirect });
+
+    await (afterHook!.handler as Function)(arg);
+
+    expect(storage.entries).toHaveLength(1);
+    expect(storage.entries[0]?.status).toBe("failed");
+    expect(storage.entries[0]?.metadata).toMatchObject({ error: { code: "access_denied" } });
+    // No empty-string message is stored.
+    expect(storage.entries[0]?.metadata).not.toHaveProperty("error.message");
+  });
+
+  test("after hook captures the error code from body.code (better-call APIError shape)", async () => {
+    const plugin = auditLog({ storage });
+    const [afterHook] = plugin.hooks.after;
+
+    // better-call APIErrors expose the code on `body.code`, not a top-level `code`.
+    const apiError = new APIError("BAD_REQUEST", { code: "INVALID_INPUT", message: "Invalid input" });
+    const arg = makeHandlerArg("/sign-up/email", { returned: apiError });
+
+    await (afterHook!.handler as Function)(arg);
+
+    expect(storage.entries).toHaveLength(1);
+    expect(storage.entries[0]?.status).toBe("failed");
+    expect(storage.entries[0]?.metadata).toMatchObject({
+      error: { status: "BAD_REQUEST", code: "INVALID_INPUT" },
+    });
   });
 
   test("before hook does not crash for sign-out", async () => {

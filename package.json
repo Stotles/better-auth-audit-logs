@@ -1,10 +1,9 @@
 {
   "name": "@stotles/better-auth-audit-logs",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Audit log plugin for Better Auth. Captures auth lifecycle events, stores structured log entries, and exposes query endpoints with PII redaction and custom storage backends.",
   "type": "module",
   "license": "MIT",
-  "author": "Ejiro Asiuwhu <ejiroasiuwhu10@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Stotles/better-auth-audit-logs.git"
@@ -61,9 +60,9 @@
     "check": "tsc --noEmit && bun test"
   },
   "peerDependencies": {
-    "better-auth": ">=1.0.0",
-    "zod": ">=3.0.0",
-    "typescript": "^5"
+    "better-auth": ">=1.5.0",
+    "typescript": "^5",
+    "zod": ">=3.0.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
