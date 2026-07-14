@@ -1,6 +1,6 @@
 import { createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import type { HookEndpointContext } from "@better-auth/core";
-import type { ResolvedOptions } from "../types";
+import type { AuditLogEntry, ResolvedOptions } from "../types";
 import { buildLogEntry, writeEntry } from "../internal";
 
 export function createBeforeHooks(opts: ResolvedOptions, modelName: string) {
@@ -12,12 +12,16 @@ export function createBeforeHooks(opts: ResolvedOptions, modelName: string) {
         opts.shouldCapture(context.path!),
 
       handler: createAuthMiddleware(async (ctx) => {
+        // Build the entry under a guard for the setup phase (session resolution, entry build).
+        // writeEntry owns its own logging / onWriteError / sync-strict rethrow, so it stays
+        // outside this catch to avoid double-logging the same failure.
+        let entry: Omit<AuditLogEntry, "id"> | undefined;
         try {
           const session = await getSessionFromCtx(ctx);
           const path = ctx.path!;
           const pathConfig = opts.getPathConfig(path);
 
-          const entry = await buildLogEntry(path, "success", {
+          entry = await buildLogEntry(path, "success", {
             userId: session?.user?.id ?? null,
             request: ctx.request,
             headers: ctx.headers,
@@ -26,11 +30,13 @@ export function createBeforeHooks(opts: ResolvedOptions, modelName: string) {
             authOptions: ctx.context.options,
             logger: ctx.context.logger,
           });
-
-          await writeEntry(ctx, entry, opts, modelName);
         } catch (err) {
-          ctx.context.logger?.error("[audit-log] before hook failed", err);
+          ctx.context.logger?.error("[audit-log] before hook failed to build entry", err);
+          if (opts.writeMode === "sync-strict") throw err;
+          return;
         }
+
+        await writeEntry(ctx, entry, opts, modelName);
       }),
     },
   ];

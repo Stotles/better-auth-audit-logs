@@ -20,7 +20,7 @@ function makeEntry(): Omit<AuditLogEntry, "id"> {
 function makeOpts(overrides: Partial<ResolvedOptions> = {}): ResolvedOptions {
   return {
     enabled: true,
-    nonBlocking: false,
+    writeMode: "sync-strict",
     storage: undefined,
     capture: { ipAddress: true, userAgent: true, requestBody: false },
     piiRedaction: { enabled: false, strategy: "mask" },
@@ -79,7 +79,7 @@ describe("error scenarios", () => {
     ).rejects.toThrow("Connection refused");
   });
 
-  test("storage adapter throw in non-blocking mode calls onWriteError", async () => {
+  test("storage adapter throw in background mode calls onWriteError", async () => {
     const onWriteError = mock(() => {});
     const backgroundTasks: Promise<unknown>[] = [];
     const ctx = {
@@ -97,7 +97,7 @@ describe("error scenarios", () => {
     } as unknown as GenericEndpointContext;
 
     const opts = makeOpts({
-      nonBlocking: true,
+      writeMode: "background",
       storage: {
         write: async () => { throw new Error("Timeout"); },
       },

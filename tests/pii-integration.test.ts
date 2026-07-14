@@ -7,7 +7,7 @@ import type { GenericEndpointContext } from "@better-auth/core";
 function makeOpts(overrides: Partial<ResolvedOptions> = {}): ResolvedOptions {
   return {
     enabled: true,
-    nonBlocking: false,
+    writeMode: "sync-best-effort",
     storage: undefined,
     capture: { ipAddress: true, userAgent: true, requestBody: false },
     piiRedaction: { enabled: false, strategy: "mask" },

@@ -168,12 +168,12 @@ describe("hook execution", () => {
     expect(storage.entries[0]?.userId).toBeNull();
   });
 
-  test("hook does not crash when storage write fails", async () => {
+  test("background hook does not crash when storage write fails", async () => {
     const failStorage = {
       write: async () => { throw new Error("DB down"); },
     };
 
-    const plugin = auditLog({ storage: failStorage });
+    const plugin = auditLog({ storage: failStorage, writeMode: "background" });
     const [afterHook] = plugin.hooks.after;
 
     const arg = makeHandlerArg("/sign-in/email");
@@ -194,7 +194,149 @@ describe("hook execution", () => {
     expect(meta.requestBody).toBeDefined();
   });
 
-  test("nonBlocking hooks run via runInBackground", async () => {
+  test("after hook rethrows in sync-strict mode when storage write fails", async () => {
+    const failStorage = {
+      write: async () => { throw new Error("DB down"); },
+    };
+
+    const plugin = auditLog({ storage: failStorage, writeMode: "sync-strict" });
+    const [afterHook] = plugin.hooks.after;
+
+    const arg = makeHandlerArg("/sign-in/email");
+
+    await expect(
+      (afterHook!.handler as Function)(arg),
+    ).rejects.toThrow("DB down");
+  });
+
+  test("before hook rethrows in sync-strict mode when storage write fails", async () => {
+    const failStorage = {
+      write: async () => { throw new Error("DB down"); },
+    };
+
+    const plugin = auditLog({ storage: failStorage, writeMode: "sync-strict" });
+    const [beforeHook] = plugin.hooks.before;
+
+    const arg = makeHandlerArg("/sign-out");
+
+    await expect(
+      (beforeHook!.handler as Function)(arg),
+    ).rejects.toThrow("DB down");
+  });
+
+  test("after hook does not rethrow by default (writeMode defaults to sync-best-effort)", async () => {
+    const failStorage = {
+      write: async () => { throw new Error("DB down"); },
+    };
+
+    // No writeMode passed — the resolved default is sync-best-effort, so a write failure is
+    // swallowed and the auth request still succeeds. Locks in the default the hooks depend on.
+    const plugin = auditLog({ storage: failStorage });
+    const [afterHook] = plugin.hooks.after;
+
+    const arg = makeHandlerArg("/sign-in/email");
+    await (afterHook!.handler as Function)(arg); // resolves, does not throw
+  });
+
+  test("after hook in sync-best-effort awaits the write but swallows failures", async () => {
+    let attempted = false;
+    const failStorage = {
+      write: async () => {
+        attempted = true;
+        throw new Error("DB down");
+      },
+    };
+    const onWriteError = mock(() => {});
+
+    const plugin = auditLog({
+      storage: failStorage,
+      writeMode: "sync-best-effort",
+      onWriteError,
+    });
+    const [afterHook] = plugin.hooks.after;
+
+    const arg = makeHandlerArg("/sign-in/email");
+    // Does not throw, but the write was attempted inline (not backgrounded) and reported.
+    await (afterHook!.handler as Function)(arg);
+
+    expect(attempted).toBe(true);
+    expect(onWriteError).toHaveBeenCalledTimes(1);
+    expect(arg._backgroundTasks).toHaveLength(0);
+  });
+
+  test("after hook rethrows the original error instance unchanged", async () => {
+    const storageError = new Error("boom");
+    const failStorage = {
+      write: async () => { throw storageError; },
+    };
+
+    const plugin = auditLog({ storage: failStorage, writeMode: "sync-strict" });
+    const [afterHook] = plugin.hooks.after;
+
+    const arg = makeHandlerArg("/sign-in/email");
+
+    // The exact error propagates so better-auth surfaces the real cause, not a wrapper.
+    await expect((afterHook!.handler as Function)(arg)).rejects.toBe(storageError);
+  });
+
+  test("after hook does not rethrow when a transient write failure recovers within retries", async () => {
+    let attempts = 0;
+    const flakyStorage = {
+      write: async (entry: any) => {
+        attempts++;
+        if (attempts === 1) throw new Error("transient blip");
+        storage.entries.push(entry);
+      },
+    };
+
+    const plugin = auditLog({ storage: flakyStorage, writeMode: "sync-strict" });
+    const [afterHook] = plugin.hooks.after;
+
+    const arg = makeHandlerArg("/sign-in/email");
+    // First attempt throws, the retry succeeds — the handler resolves and the entry lands.
+    // The hook only rethrows once retries are exhausted, so this must not throw.
+    await (afterHook!.handler as Function)(arg);
+
+    expect(attempts).toBe(2);
+    expect(storage.entries).toHaveLength(1);
+  });
+
+  test("after hook rethrows when a beforeLog callback throws (non-storage path)", async () => {
+    // beforeLog runs before the write and outside writeEntry's retry/onWriteError guard,
+    // so this is a different failure route than a storage throw — it must still bubble up.
+    const plugin = auditLog({
+      storage,
+      writeMode: "sync-strict",
+      beforeLog: async () => { throw new Error("beforeLog blew up"); },
+    });
+    const [afterHook] = plugin.hooks.after;
+
+    const arg = makeHandlerArg("/sign-in/email");
+
+    await expect(
+      (afterHook!.handler as Function)(arg),
+    ).rejects.toThrow("beforeLog blew up");
+  });
+
+  test("after hook rethrows when an afterLog callback throws, even though the entry was written", async () => {
+    const plugin = auditLog({
+      storage,
+      writeMode: "sync-strict",
+      afterLog: async () => { throw new Error("afterLog blew up"); },
+    });
+    const [afterHook] = plugin.hooks.after;
+
+    const arg = makeHandlerArg("/sign-in/email");
+
+    // afterLog runs *after* the write, so the entry is persisted but the hook still throws —
+    // the rethrow isn't tied to the write failing.
+    await expect(
+      (afterHook!.handler as Function)(arg),
+    ).rejects.toThrow("afterLog blew up");
+    expect(storage.entries).toHaveLength(1);
+  });
+
+  test("background hooks run via runInBackground", async () => {
     const backgroundTasks: Promise<unknown>[] = [];
     const delayedStorage = {
       write: async (entry: any) => {
@@ -203,7 +345,7 @@ describe("hook execution", () => {
       },
     };
 
-    const plugin = auditLog({ storage: delayedStorage, nonBlocking: true });
+    const plugin = auditLog({ storage: delayedStorage, writeMode: "background" });
     const [afterHook] = plugin.hooks.after;
 
     const arg = makeHandlerArg("/sign-in/email", {

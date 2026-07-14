@@ -72,7 +72,7 @@ function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
 
   return {
     enabled: options?.enabled ?? true,
-    nonBlocking: options?.nonBlocking ?? false,
+    writeMode: options?.writeMode ?? "sync-best-effort",
     storage: options?.storage,
     capture: {
       ipAddress: options?.capture?.ipAddress ?? true,
