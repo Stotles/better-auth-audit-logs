@@ -8,8 +8,8 @@ export function createBeforeHooks(opts: ResolvedOptions, modelName: string) {
     {
       matcher: (context: HookEndpointContext) =>
         !!context.path &&
-        opts.beforePaths.some((p) => context.path!.startsWith(p)) &&
-        opts.shouldCapture(context.path!),
+        opts.runBeforeHook(context.path) &&
+        opts.shouldCapture(context.path),
 
       handler: createAuthMiddleware(async (ctx) => {
         // Build the entry under a guard for the setup phase (session resolution, entry build).

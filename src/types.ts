@@ -149,9 +149,27 @@ export interface AuditLogOptions {
    * This is needed on paths which remove the user from the request context (e.g. logout)
    * so the userId can be captured.
    *
+   * Cannot be combined with {@link afterPaths} is set by the user — the two describe the same before/after
+   * partition from opposite sides, so providing both throws a configuration error. When
+   * `afterPaths` is set this option is unused and no default is applied.
+   *
    * @default DEFAULT_BEFORE_PATHS
    */
   beforePaths?: string[];
+  /**
+   * Inverts the default hook timing: when provided, the audit log is written *before* the
+   * request is processed for **all** paths, except those listed here which are written after.
+   *
+   * Use this when most of your captured paths need before-hook logging and only a few can be
+   * logged afterwards.
+   * Cannot be combined with {@link beforePaths} is set by the user — the two describe the same
+   * before/after partition from opposite sides, so providing both throws a configuration error.
+   *
+   * Session-destroying paths (e.g. `/sign-out`, `/delete-user`) will not have the userId available
+   * so are recommended not to be listed here unless you want to accept that the userId will be
+   * always `null` for those paths.
+   */
+  afterPaths?: string[];
   piiRedaction?: PIIRedactionOptions;
   capture?: CaptureOptions;
   metadataLimits?: MetadataLimitsConfig | false;
@@ -190,7 +208,11 @@ export interface ResolvedOptions {
   capture: Required<CaptureOptions>;
   piiRedaction: { enabled: boolean; fields?: string[]; strategy: PIIStrategy };
   metadataLimits: ResolvedMetadataLimits | false;
-  beforePaths: readonly string[];
+  /**
+   * Predicate deciding whether a path is logged in the before hook (`true`) or the after hook
+   * (`false`). Resolved from `beforePaths`/`afterPaths` so the hooks stay exact complements.
+   */
+  runBeforeHook: (path: string) => boolean;
   beforeLog: AuditLogOptions["beforeLog"];
   afterLog: AuditLogOptions["afterLog"];
   onWriteError: AuditLogOptions["onWriteError"];

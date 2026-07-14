@@ -24,7 +24,8 @@ function makeOpts(overrides: Partial<ResolvedOptions> = {}): ResolvedOptions {
     capture: { ipAddress: true, userAgent: true, requestBody: false },
     piiRedaction: { enabled: false, strategy: "mask" },
     metadataLimits: { maxBytes: 65536, maxDepth: 5 },
-    beforePaths: ["/sign-out", "/delete-user"],
+    runBeforeHook: (path) =>
+      ["/sign-out", "/delete-user"].some((p) => path.startsWith(p)),
     beforeLog: undefined,
     afterLog: undefined,
     onWriteError: undefined,
