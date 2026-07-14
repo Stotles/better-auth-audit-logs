@@ -92,7 +92,7 @@ export const auditLog = sqliteTable("auditLog", {
   _id: ObjectId,
   userId: String | null,       // references user collection
   action: String,              // e.g. "sign-in:email"
-  status: String,              // "success" | "failed"
+  status: String,              // "success" | "failed" | "requested"
   severity: String,            // "low" | "medium" | "high" | "critical"
   ipAddress: String | null,
   userAgent: String | null,
@@ -155,9 +155,44 @@ All auth `POST` endpoints are captured by default:
 | Delete account | `/delete-user` | **before** |
 | Revoke session | `/revoke-session`, `/revoke-sessions`, `/revoke-other-sessions` | **before** |
 
-"Before" hooks fire for destructive events where the session would be lost after execution. Because the write happens *before* the action runs, these entries are recorded with `status: "success"`.
+"Before" hooks fire for destructive events where the session would be lost after execution. Because the write happens *before* the action runs, these entries are recorded with `status: "requested"` — the request was captured, but its outcome is not (the entry is never updated). `after`-hook events, by contrast, record the observed `"success"` or `"failed"`.
+
+> **`beforePaths` events produce exactly one `"requested"` entry, even if the action then fails.** The before and after hooks are mutually exclusive, so a failed `delete-user`/`sign-out`/`revoke-session` is *not* separately logged as `"failed"` — only the `"requested"` record exists. (This is the trade-off for capturing the userId before the session is torn down.) Regular `after`-hook paths do record failures: a thrown `APIError` is captured as `"failed"`. A handler that throws a non-`APIError` bypasses the after hook entirely and isn't logged at all (see the limitation below).
 
 Severity is inferred automatically (`critical` for ban/impersonate, `high` for delete/revoke/failed sign-in, `medium` for sign-in/out, `low` for everything else) and can be overridden per-path.
+
+### Limitation: unexpected (non-`APIError`) failures aren't logged
+
+The after hook only sees failures that better-auth surfaces as an `APIError` (invalid credentials, rate limits, validation, etc.). If a handler throws something else — a raw database driver error, a `TypeError`, any unhandled bug — the current better-auth re-throws it *before* the after-hook stage runs, so **no audit entry is written** for it. There is no plugin-level error hook that can catch this, so the plugin cannot close the gap on its own. (The after hook does keep a defensive guard that records a `"failed"` entry should a future version ever surface such an error as the endpoint result instead of re-throwing — but you can't rely on that today.)
+
+These are unexpected `500`s rather than auth outcomes, so they usually belong in your error monitoring (Sentry, structured logs). If you *do* want them in the audit trail, wire better-auth's global `onAPIError.onError` — it fires for any escaped error and write the non-`APIError` case yourself via your storage backend:
+
+```ts
+import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
+
+export const auth = betterAuth({
+  plugins: [auditLog({ storage })],
+  onAPIError: {
+    onError: async (error, ctx) => {
+      if (error instanceof APIError) return; // already captured by the after hook
+      await storage.write({
+        id: crypto.randomUUID(),
+        userId: null,
+        action: "unexpected-error",
+        status: "failed",
+        severity: "high",
+        ipAddress: null,
+        userAgent: null,
+        metadata: { error: error instanceof Error ? error.message : String(error) },
+        createdAt: new Date(),
+      });
+    },
+  },
+});
+```
+
+Note the callback only receives better-auth's shared `AuthContext`, **not** the per-request context: better-auth doesn't forward the `Request` to `onAPIError.onError`, and the request-scoped context is already torn down by the time an unhandled throw reaches it. So there's no reliable `path`/IP/headers here — the entry is necessarily coarse.
 
 ## Configuration
 
@@ -278,7 +313,7 @@ Three endpoints are registered under `/audit-log/`, all requiring an active sess
 |---|---|---|
 | `userId` | `string` | session user |
 | `action` | `string` | — |
-| `status` | `"success" \| "failed"` | — |
+| `status` | `"success" \| "failed" \| "requested"` | — |
 | `from` | ISO date string | — |
 | `to` | ISO date string | — |
 | `limit` | `number` | `50` (max 500) |
@@ -291,7 +326,7 @@ Three endpoints are registered under `/audit-log/`, all requiring an active sess
 - **Failed sign-ins have `userId: null`** — the user isn't authenticated yet, so there's no session to pull from.
 - **`writeMode` trades audit integrity against auth availability** — the write can relate to the auth request in three ways:
   - `"sync-best-effort"` **(default)** — the write is awaited before responding (so it isn't dropped on runtimes without a reliable background mechanism), but a failure after retries is logged and passed to `onWriteError` **without** failing the auth request. Auth always succeeds.
-  - `"sync-strict"` — same, but a failure (storage after retries, or a throw from `beforeLog`/`afterLog`) is **rethrown**, turning the audit failure into the auth response. This does **not** roll the action back: `after` hooks run once the auth action has already executed and committed (better-auth does not wrap the request and its hooks in a shared transaction), so strict mode surfaces an error *after the fact*. To actually gate an action on a durable audit record, add its path to `beforePaths` so the write runs *before* the action — a failed write then blocks it. Such entries are recorded with `status: "success"` no matter what, since a before-hook write can't observe whether the action ultimately succeeded.
+  - `"sync-strict"` — same, but a failure (storage after retries, or a throw from `beforeLog`/`afterLog`) is **rethrown**, turning the audit failure into the auth response. This does **not** roll the action back: `after` hooks run once the auth action has already executed and committed (better-auth does not wrap the request and its hooks in a shared transaction), so strict mode surfaces an error *after the fact*. To actually gate an action on a durable audit record, add its path to `beforePaths` so the write runs *before* the action — a failed write then blocks it. Such entries are recorded with `status: "requested"`, since a before-hook write can't observe whether the action ultimately succeeded.
   - `"background"` — fire-and-forget via `runInBackground`; lowest latency, failures never touch the response. Requires the runtime to keep the task alive after responding (e.g. `waitUntil`), or writes may be lost.
 
 ## Recommended production config

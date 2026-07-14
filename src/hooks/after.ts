@@ -88,7 +88,12 @@ export function createAfterHooks(opts: ResolvedOptions, modelName: string) {
               };
             }
           } else if (returned instanceof Error) {
-            // A non-API error (an unexpected throw) — record the failure with just the message.
+            // Defensive: today's better-auth re-throws a non-APIError out of the handler *before*
+            // the after-hook stage runs (see dispatchAuthEndpoint), so `returned` is never a plain
+            // Error in practice — an unhandled throw isn't logged at all (see README limitation).
+            // We keep this branch as a safety net: if a future version ever surfaces such an error
+            // as `returned` rather than re-throwing, we still record the failure instead of silently
+            // logging it as a success.
             status = "failed";
             if (returned.message) {
               metadata.error = { message: returned.message };

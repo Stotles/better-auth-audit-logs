@@ -21,7 +21,9 @@ export function createBeforeHooks(opts: ResolvedOptions, modelName: string) {
           const path = ctx.path!;
           const pathConfig = opts.getPathConfig(path);
 
-          entry = await buildLogEntry(path, "success", {
+          // before-hook entries record that the action was *requested*; the outcome is not
+          // observed here since the write happens before the handler runs (and is never updated).
+          entry = await buildLogEntry(path, "requested", {
             userId: session?.user?.id ?? null,
             request: ctx.request,
             headers: ctx.headers,

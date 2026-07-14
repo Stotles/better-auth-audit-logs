@@ -13,7 +13,7 @@ export function createListLogsEndpoint(opts: ResolvedOptions, modelName: string)
       query: z.object({
         userId: z.string().optional(),
         action: z.string().optional(),
-        status: z.enum(["success", "failed"]).optional(),
+        status: z.enum(["success", "failed", "requested"]).optional(),
         from: z.string().optional(),
         to: z.string().optional(),
         limit: z.coerce.number().min(1).max(500).optional().default(50),
