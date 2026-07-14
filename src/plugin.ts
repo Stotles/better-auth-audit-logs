@@ -84,7 +84,6 @@ function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
       fields: options?.piiRedaction?.fields,
       strategy: options?.piiRedaction?.strategy ?? "mask",
     },
-    retention: options?.retention,
     metadataLimits,
     beforePaths: options?.beforePaths ?? DEFAULT_BEFORE_PATHS,
     beforeLog: options?.beforeLog,

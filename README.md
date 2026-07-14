@@ -186,11 +186,6 @@ auditLog({
     fields: ["password"],    // defaults: password, token, secret, apiKey, otp, etc.
   },
 
-  retention: {
-    enabled: false,          // enable scheduled cleanup
-    days: 90,                // delete entries older than N days
-  },
-
   // intercept before write — return null to suppress. Receives the endpoint
   // ctx as a second argument, so you can resolve the session or read the request.
   beforeLog: async (entry, ctx) => {
@@ -301,7 +296,6 @@ Three endpoints are registered under `/audit-log/`, all requiring an active sess
 auditLog({
   nonBlocking: true,
   piiRedaction: { enabled: true, strategy: "hash" },
-  retention: { enabled: true, days: 90 },
   afterLog: async (entry) => {
     if (entry.severity === "critical" || entry.severity === "high") {
       await alerting.emit(entry);

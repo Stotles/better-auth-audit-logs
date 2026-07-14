@@ -55,11 +55,6 @@ export interface PathConfig {
   capture?: CaptureOptions;
 }
 
-export interface RetentionConfig {
-  enabled: boolean;
-  days: number;
-}
-
 export interface MetadataLimitsConfig {
   maxBytes?: number;
   maxDepth?: number;
@@ -73,7 +68,6 @@ export interface AuditLogOptions {
   beforePaths?: string[];
   piiRedaction?: PIIRedactionOptions;
   capture?: CaptureOptions;
-  retention?: RetentionConfig;
   metadataLimits?: MetadataLimitsConfig | false;
   schema?: {
     auditLog?: {
@@ -100,7 +94,6 @@ export interface ResolvedOptions {
   storage: AuditLogStorage | undefined;
   capture: Required<CaptureOptions>;
   piiRedaction: { enabled: boolean; fields?: string[]; strategy: PIIStrategy };
-  retention: RetentionConfig | undefined;
   metadataLimits: ResolvedMetadataLimits | false;
   beforePaths: readonly string[];
   beforeLog: AuditLogOptions["beforeLog"];
