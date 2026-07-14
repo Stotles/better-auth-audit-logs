@@ -53,6 +53,24 @@ function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
   const pathsMap = new Map<string, PathConfig | undefined>();
   const hasPaths = (options?.paths?.length ?? 0) > 0;
 
+  const { beforePaths, afterPaths } = options ?? {};
+  if (beforePaths !== undefined && afterPaths !== undefined) {
+    throw new Error(
+      "[audit-log] Provide either `beforePaths` or `afterPaths`, not both. " +
+        "`beforePaths` lists the paths logged in the before hook (all others after); " +
+        "`afterPaths` inverts this — all paths log in the before hook except those listed.",
+    );
+  }
+
+  // `afterPaths` inverts the default timing: every path is logged in the before hook except the
+  // listed ones. Otherwise the before hook captures only `beforePaths` (defaulting to the
+  // session-destroying paths) and everything else is logged after.
+  const beforePathList = beforePaths ?? DEFAULT_BEFORE_PATHS;
+  const runBeforeHook =
+    afterPaths !== undefined
+      ? (path: string) => !afterPaths.some((p) => path.startsWith(p))
+      : (path: string) => beforePathList.some((p) => path.startsWith(p));
+
   for (const p of options?.paths ?? []) {
     if (typeof p === "string") {
       pathsMap.set(p, undefined);
@@ -85,7 +103,7 @@ function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
       strategy: options?.piiRedaction?.strategy ?? "mask",
     },
     metadataLimits,
-    beforePaths: options?.beforePaths ?? DEFAULT_BEFORE_PATHS,
+    runBeforeHook,
     beforeLog: options?.beforeLog,
     afterLog: options?.afterLog,
     onWriteError: options?.onWriteError,

@@ -72,6 +72,39 @@ describe("auditLog plugin", () => {
     expect(afterHook!.matcher(makeContext("/sign-out"))).toBe(true);
   });
 
+  test("afterPaths inverts timing: all paths before except the listed ones", () => {
+    const plugin = auditLog({ afterPaths: ["/callback", "/sign-in/email"] });
+    const [beforeHook] = plugin.hooks.before;
+    const [afterHook] = plugin.hooks.after;
+
+    // Listed paths go to the after hook
+    expect(beforeHook!.matcher(makeContext("/callback/google"))).toBe(false);
+    expect(afterHook!.matcher(makeContext("/callback/google"))).toBe(true);
+
+    // Everything else (including former after-only paths) now goes to the before hook
+    expect(beforeHook!.matcher(makeContext("/sign-up/email"))).toBe(true);
+    expect(afterHook!.matcher(makeContext("/sign-up/email"))).toBe(false);
+
+    // Default before paths are unaffected — still logged before
+    expect(beforeHook!.matcher(makeContext("/sign-out"))).toBe(true);
+    expect(afterHook!.matcher(makeContext("/sign-out"))).toBe(false);
+  });
+
+  test("empty afterPaths logs every path in the before hook", () => {
+    const plugin = auditLog({ afterPaths: [] });
+    const [beforeHook] = plugin.hooks.before;
+    const [afterHook] = plugin.hooks.after;
+
+    expect(beforeHook!.matcher(makeContext("/sign-in/email"))).toBe(true);
+    expect(afterHook!.matcher(makeContext("/sign-in/email"))).toBe(false);
+  });
+
+  test("providing both beforePaths and afterPaths throws", () => {
+    expect(() =>
+      auditLog({ beforePaths: ["/sign-out"], afterPaths: ["/callback"] }),
+    ).toThrow(/either `beforePaths` or `afterPaths`/);
+  });
+
   test("paths whitelist restricts which paths are captured", () => {
     const plugin = auditLog({ paths: ["/sign-in/email"] });
     const [afterHook] = plugin.hooks.after;

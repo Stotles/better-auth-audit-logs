@@ -157,7 +157,9 @@ All auth `POST` endpoints are captured by default:
 
 "Before" hooks fire for destructive events where the session would be lost after execution. Because the write happens *before* the action runs, these entries are recorded with `status: "requested"` — the request was captured, but its outcome is not (the entry is never updated). `after`-hook events, by contrast, record the observed `"success"` or `"failed"`.
 
-> **`beforePaths` events produce exactly one `"requested"` entry, even if the action then fails.** The before and after hooks are mutually exclusive, so a failed `delete-user`/`sign-out`/`revoke-session` is *not* separately logged as `"failed"` — only the `"requested"` record exists. (This is the trade-off for capturing the userId before the session is torn down.) Regular `after`-hook paths do record failures: a thrown `APIError` is captured as `"failed"`. A handler that throws a non-`APIError` bypasses the after hook entirely and isn't logged at all (see the limitation below).
+> **before-hook events produce exactly one `"requested"` entry, even if the action then fails.** The before and after hooks are mutually exclusive, so a failed `delete-user`/`sign-out`/`revoke-session` is *not* separately logged as `"failed"` — only the `"requested"` record exists. (This is the trade-off for capturing the userId before the session is torn down.) Regular `after`-hook paths do record failures: a thrown `APIError` is captured as `"failed"`. A handler that throws a non-`APIError` bypasses the after hook entirely and isn't logged at all (see the limitation below).
+>
+> **This applies to *every* path routed through the before hook — including when you invert the timing with [`afterPaths`](#configuration).** In that mode most paths log before the handler runs, so most of your entries will be `"requested"` with no observed outcome, and only the paths listed in `afterPaths` will record `"success"`/`"failed"`. Reach for `afterPaths` only when capturing the *request* (not its outcome) is what you want for the bulk of your paths.
 
 Severity is inferred automatically (`critical` for ban/impersonate, `high` for delete/revoke/failed sign-in, `medium` for sign-in/out, `low` for everything else) and can be overridden per-path.
 
@@ -208,6 +210,16 @@ auditLog({
     "/sign-in/email",
     { path: "/delete-user", config: { severity: "high", capture: { requestBody: true } } },
   ],
+
+  // paths logged *before* the handler runs (needed where the session is torn down mid-request,
+  // so the userId can still be captured). Defaults to the session-destroying paths.
+  // This can be combined with `paths`
+  beforePaths: ["/sign-out", "/delete-user", "/revoke-session"],
+
+  // OR invert it: log *all* paths before the handler, except these which log after.
+  // Mutually exclusive with beforePaths. Don't list session-destroying paths here.
+  // This can be combined with `paths`
+  // afterPaths: ["/callback"],
 
   capture: {
     ipAddress: true,         // capture client IP
@@ -326,7 +338,7 @@ Three endpoints are registered under `/audit-log/`, all requiring an active sess
 - **Failed sign-ins have `userId: null`** — the user isn't authenticated yet, so there's no session to pull from.
 - **`writeMode` trades audit integrity against auth availability** — the write can relate to the auth request in three ways:
   - `"sync-best-effort"` **(default)** — the write is awaited before responding (so it isn't dropped on runtimes without a reliable background mechanism), but a failure after retries is logged and passed to `onWriteError` **without** failing the auth request. Auth always succeeds.
-  - `"sync-strict"` — same, but a failure (storage after retries, or a throw from `beforeLog`/`afterLog`) is **rethrown**, turning the audit failure into the auth response. This does **not** roll the action back: `after` hooks run once the auth action has already executed and committed (better-auth does not wrap the request and its hooks in a shared transaction), so strict mode surfaces an error *after the fact*. To actually gate an action on a durable audit record, add its path to `beforePaths` so the write runs *before* the action — a failed write then blocks it. Such entries are recorded with `status: "requested"`, since a before-hook write can't observe whether the action ultimately succeeded.
+  - `"sync-strict"` — same, but a failure (storage after retries, or a throw from `beforeLog`/`afterLog`) is **rethrown**, turning the audit failure into the auth response. This does **not** roll the action back: `after` hooks run once the auth action has already executed and committed (better-auth does not wrap the request and its hooks in a shared transaction), so strict mode surfaces an error *after the fact*. To actually gate an action on a durable audit record, log its path in the *before* hook so the write runs before the action — a failed write then blocks it. The robust way to do this broadly is `afterPaths`, which inverts the default so **every** path logs before except the ones you list. Prefer it over `beforePaths` here: you only have to enumerate the non-mutating paths (which don't need gating), rather than remembering to add every mutating path. However, this means you lose the observed outcome of those paths (they all log as `"requested"`).
   - `"background"` — fire-and-forget via `runInBackground`; lowest latency, failures never touch the response. Requires the runtime to keep the task alive after responding (e.g. `waitUntil`), or writes may be lost.
 
 ## Recommended production config
