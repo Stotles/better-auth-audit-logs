@@ -12,6 +12,5 @@ export type {
   PIIRedactionOptions,
   CaptureOptions,
   PathConfig,
-  RetentionConfig,
   MetadataLimitsConfig,
 } from "./types";
