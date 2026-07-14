@@ -1,6 +1,13 @@
 import type { GenericEndpointContext } from "@better-auth/core";
 
-export type AuditLogStatus = "success" | "failed";
+/**
+ * - `success` - the action was requested and completed successfully
+ * - `failed` - the action was requested but failed (e.g. invalid credentials)
+ * - `requested` - the action was requested but its outcome is not observed.
+ *    Used by the `before` hook since that entry is written before the handler runs
+ *    and is never updated afterwards so the outcome is unknown.
+ */
+export type AuditLogStatus = "success" | "failed" | "requested";
 export type AuditLogSeverity = "low" | "medium" | "high" | "critical";
 export type PIIStrategy = "mask" | "hash" | "remove";
 export type AuditLogWriteMode = "sync-strict" | "sync-best-effort" | "background";

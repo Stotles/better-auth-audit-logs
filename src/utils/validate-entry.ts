@@ -8,7 +8,7 @@ import type { AuditLogEntry } from "../types";
 const auditLogEntrySchema = z.object({
   userId: z.string().nullable(),
   action: z.string().min(1),
-  status: z.enum(["success", "failed"]),
+  status: z.enum(["success", "failed", "requested"]),
   severity: z.enum(["low", "medium", "high", "critical"]),
   ipAddress: z.string().nullable(),
   userAgent: z.string().nullable(),

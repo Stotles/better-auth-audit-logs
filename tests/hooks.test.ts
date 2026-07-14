@@ -54,7 +54,10 @@ describe("hook execution", () => {
     expect(storage.entries[0]?.status).toBe("success");
   });
 
-  test("after hook records failed status when returned is an Error", async () => {
+  test("after hook defensively records failed when returned is a non-APIError Error", async () => {
+    // Defensive path: better-auth re-throws unhandled non-APIErrors before the after hook runs,
+    // so `returned` is never a plain Error in practice (see the hook's comment). This locks in the
+    // safety net — if such an error ever did surface here, it's logged as a failure, not a success.
     const plugin = auditLog({ storage });
     const [afterHook] = plugin.hooks.after;
 
@@ -143,7 +146,7 @@ describe("hook execution", () => {
     });
   });
 
-  test("before hook does not crash for sign-out", async () => {
+  test("before hook records a sign-out with status 'requested'", async () => {
     const plugin = auditLog({ storage });
     const [beforeHook] = plugin.hooks.before;
 
@@ -151,6 +154,11 @@ describe("hook execution", () => {
     expect(beforeHook!.matcher(arg as unknown as HookEndpointContext)).toBe(true);
 
     await (beforeHook!.handler as Function)(arg);
+
+    expect(storage.entries).toHaveLength(1);
+    expect(storage.entries[0]?.action).toBe("sign-out");
+    // The write happens before the action runs, so the outcome isn't observed.
+    expect(storage.entries[0]?.status).toBe("requested");
   });
 
   test("after hook with null userId for unauthenticated context", async () => {

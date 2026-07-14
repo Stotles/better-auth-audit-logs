@@ -12,7 +12,7 @@ export function createInsertLogEndpoint(opts: ResolvedOptions, modelName: string
       use: [sessionMiddleware],
       body: z.object({
         action: z.string().min(1),
-        status: z.enum(["success", "failed"]).optional().default("success"),
+        status: z.enum(["success", "failed", "requested"]).optional().default("success"),
         severity: z.enum(["low", "medium", "high", "critical"]).optional(),
         metadata: z.record(z.string(), z.unknown()).optional().default({}),
       }),
