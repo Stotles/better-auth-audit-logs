@@ -155,7 +155,7 @@ All auth `POST` endpoints are captured by default:
 | Delete account | `/delete-user` | **before** |
 | Revoke session | `/revoke-session`, `/revoke-sessions`, `/revoke-other-sessions` | **before** |
 
-"Before" hooks fire for destructive events where the session would be lost after execution.
+"Before" hooks fire for destructive events where the session would be lost after execution. Because the write happens *before* the action runs, these entries are recorded with `status: "success"`.
 
 Severity is inferred automatically (`critical` for ban/impersonate, `high` for delete/revoke/failed sign-in, `medium` for sign-in/out, `low` for everything else) and can be overridden per-path.
 
@@ -165,8 +165,8 @@ All options are optional:
 
 ```ts
 auditLog({
-  enabled: true,             // disable without removing the plugin
-  nonBlocking: false,        // fire-and-forget — never blocks auth responses
+  enabled: true,                 // disable without removing the plugin
+  writeMode: "sync-best-effort", // how the write relates to the auth request (see Design decisions)
 
   // restrict to specific paths (empty = capture all)
   paths: [
@@ -289,12 +289,17 @@ Three endpoints are registered under `/audit-log/`, all requiring an active sess
 - **Entries survive user deletion** — `userId` uses `ON DELETE SET NULL`. Deleting a user does not erase their audit trail.
 - **`userAgent` is not returned in API responses** — stored for forensics but excluded from client queries by default.
 - **Failed sign-ins have `userId: null`** — the user isn't authenticated yet, so there's no session to pull from.
+- **`writeMode` trades audit integrity against auth availability** — the write can relate to the auth request in three ways:
+  - `"sync-best-effort"` **(default)** — the write is awaited before responding (so it isn't dropped on runtimes without a reliable background mechanism), but a failure after retries is logged and passed to `onWriteError` **without** failing the auth request. Auth always succeeds.
+  - `"sync-strict"` — same, but a failure (storage after retries, or a throw from `beforeLog`/`afterLog`) is **rethrown**, turning the audit failure into the auth response. This does **not** roll the action back: `after` hooks run once the auth action has already executed and committed (better-auth does not wrap the request and its hooks in a shared transaction), so strict mode surfaces an error *after the fact*. To actually gate an action on a durable audit record, add its path to `beforePaths` so the write runs *before* the action — a failed write then blocks it. Such entries are recorded with `status: "success"` no matter what, since a before-hook write can't observe whether the action ultimately succeeded.
+  - `"background"` — fire-and-forget via `runInBackground`; lowest latency, failures never touch the response. Requires the runtime to keep the task alive after responding (e.g. `waitUntil`), or writes may be lost.
 
 ## Recommended production config
 
 ```ts
 auditLog({
-  nonBlocking: true,
+  writeMode: "sync-best-effort", // the default: never fails auth, and the write isn't dropped post-response.
+                                 // See above for trade-offs between modes as all are reasonable.
   piiRedaction: { enabled: true, strategy: "hash" },
   afterLog: async (entry) => {
     if (entry.severity === "critical" || entry.severity === "high") {

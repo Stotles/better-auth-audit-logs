@@ -100,58 +100,64 @@ export async function writeEntry(
   opts: ResolvedOptions,
   modelName: string,
 ): Promise<void> {
-  const doFullWrite = async () => {
-    let finalEntry = entry;
+  // The entry actually attempted, after any beforeLog transform. Reported to onWriteError so
+  // callers see what failed to persist, not the pre-transform input.
+  let attemptedEntry = entry;
 
+  const doFullWrite = async () => {
     if (opts.beforeLog) {
-      const modified = await opts.beforeLog(finalEntry, ctx);
+      const modified = await opts.beforeLog(attemptedEntry, ctx);
       if (modified === null) return;
 
       const validated = validateEntry(modified, ctx.context.logger);
       if (validated === null) return;
-      finalEntry = validated;
+      attemptedEntry = validated;
     }
 
-    let written: AuditLogEntry;
-    try {
-      written = await withRetry(async () => {
-        if (opts.storage) {
-          const result: AuditLogEntry = { id: crypto.randomUUID(), ...finalEntry };
-          await opts.storage!.write(result);
-          return result;
-        }
+    const written = await withRetry(async () => {
+      if (opts.storage) {
+        const result: AuditLogEntry = { id: crypto.randomUUID(), ...attemptedEntry };
+        await opts.storage!.write(result);
+        return result;
+      }
 
-        const record = await ctx.context.adapter.create<
-          Record<string, unknown>
-        >({
-          model: modelName,
-          data: {
-            ...finalEntry,
-            metadata: JSON.stringify(finalEntry.metadata),
-          },
-        });
-        return {
-          ...(record as Omit<AuditLogEntry, "metadata">),
-          metadata: finalEntry.metadata,
-        } as AuditLogEntry;
-      }, { maxRetries: 2, baseDelayMs: 100 });
-    } catch (err) {
-      ctx.context.logger?.error("[audit-log] storage write failed after retries", err);
-      opts.onWriteError?.(err, finalEntry);
-      throw err;
-    }
+      const record = await ctx.context.adapter.create<
+        Record<string, unknown>
+      >({
+        model: modelName,
+        data: {
+          ...attemptedEntry,
+          metadata: JSON.stringify(attemptedEntry.metadata),
+        },
+      });
+      return {
+        ...(record as Omit<AuditLogEntry, "metadata">),
+        metadata: attemptedEntry.metadata,
+      } as AuditLogEntry;
+    }, { maxRetries: 2, baseDelayMs: 100 });
 
     if (opts.afterLog) await opts.afterLog(written);
   };
 
-  if (opts.nonBlocking) {
+  // "background": fire-and-forget. The write never affects the response; failures are
+  // isolated to the logger/onWriteError. Requires the runtime to keep the task alive.
+  if (opts.writeMode === "background") {
     ctx.context.runInBackground(
       doFullWrite().catch((err) => {
         ctx.context.logger?.error("[audit-log] background write failed", err);
-        opts.onWriteError?.(err, entry);
+        opts.onWriteError?.(err, attemptedEntry);
       }),
     );
-  } else {
+    return;
+  }
+
+  // Both sync modes await the write. On failure they report once via the logger/onWriteError;
+  // only "sync-strict" rethrows to fail the auth request, "sync-best-effort" swallows.
+  try {
     await doFullWrite();
+  } catch (err) {
+    ctx.context.logger?.error("[audit-log] audit write failed", err);
+    opts.onWriteError?.(err, attemptedEntry);
+    if (opts.writeMode === "sync-strict") throw err;
   }
 }

@@ -3,6 +3,7 @@ import type { GenericEndpointContext } from "@better-auth/core";
 export type AuditLogStatus = "success" | "failed";
 export type AuditLogSeverity = "low" | "medium" | "high" | "critical";
 export type PIIStrategy = "mask" | "hash" | "remove";
+export type AuditLogWriteMode = "sync-strict" | "sync-best-effort" | "background";
 
 export interface AuditLogEntry {
   id: string;
@@ -110,13 +111,21 @@ export interface AuditLogOptions {
    */
   enabled?: boolean;
   /**
-   * Is the audit log written to asynchronously in the background, or synchronously as part of the auth flow.
-   * No matter which, this will never throw an error, blocking the auth flow.
-   * If a write fails after all retries, the error will be logged and passed to `onWriteError` if provided.
+   * Controls how the audit-log write relates to the auth request lifecycle:
    *
-   * @default false
+   * - `"sync-best-effort"` — await the write, but on failure log it (and call `onWriteError`)
+   *   without rethrowing, so auth always succeeds. Because the write is awaited before responding,
+   *   it isn't dropped on runtimes without a reliable background mechanism (e.g. serverless/edge).
+   * - `"sync-strict"` — await the write, and if it ultimately fails (after retries) rethrow so
+   *   the underlying auth request fails. This attempts to fail-closed but there are **many** scenarios
+   *   where this doesn't happen, see the [README](../README.md) for details
+   * - `"background"` — fire-and-forget via `runInBackground`; failures are logged and passed to
+   *   `onWriteError` but never affect the response. Lowest latency, but requires the runtime to
+   *   keep the task alive after responding (e.g. `waitUntil`) or writes may be lost.
+   *
+   * @default "sync-best-effort"
    */
-  nonBlocking?: boolean;
+  writeMode?: AuditLogWriteMode;
   /**
    * Storage adapter used for audit logs. If not provided, will use the Better-Auth adapter
    * and the database associated with it.
@@ -169,7 +178,7 @@ export interface ResolvedMetadataLimits {
 
 export interface ResolvedOptions {
   enabled: boolean;
-  nonBlocking: boolean;
+  writeMode: AuditLogWriteMode;
   storage: AuditLogStorage | undefined;
   capture: Required<CaptureOptions>;
   piiRedaction: { enabled: boolean; fields?: string[]; strategy: PIIStrategy };

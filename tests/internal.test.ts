@@ -19,7 +19,7 @@ function makeEntry(): Omit<AuditLogEntry, "id"> {
 function makeOpts(overrides: Partial<ResolvedOptions> = {}): ResolvedOptions {
   return {
     enabled: true,
-    nonBlocking: false,
+    writeMode: "sync-best-effort",
     storage: undefined,
     capture: { ipAddress: true, userAgent: true, requestBody: false },
     piiRedaction: { enabled: false, strategy: "mask" },
@@ -191,6 +191,7 @@ describe("writeEntry", () => {
     const storageError = new Error("DB connection lost");
     const onWriteError = mock(() => {});
     const opts = makeOpts({
+      writeMode: "sync-best-effort",
       storage: {
         write: async () => {
           throw storageError;
@@ -200,17 +201,17 @@ describe("writeEntry", () => {
     });
     const ctx = makeCtx();
 
-    await expect(writeEntry(ctx, makeEntry(), opts, "auditLog")).rejects.toThrow(
-      "DB connection lost",
-    );
+    // sync-best-effort swallows the storage error rather than rethrowing.
+    await writeEntry(ctx, makeEntry(), opts, "auditLog");
+
     expect(onWriteError).toHaveBeenCalledTimes(1);
     expect((onWriteError.mock.calls[0] as unknown[])[0]).toBe(storageError);
   });
 
-  test("nonBlocking mode does not block on storage write", async () => {
+  test("background mode does not block on storage write", async () => {
     let writeResolved = false;
     const opts = makeOpts({
-      nonBlocking: true,
+      writeMode: "background",
       storage: {
         write: async () => {
           await new Promise((r) => setTimeout(r, 50));
@@ -229,10 +230,10 @@ describe("writeEntry", () => {
     expect(writeResolved).toBe(true);
   });
 
-  test("nonBlocking mode does not block on beforeLog", async () => {
+  test("background mode does not block on beforeLog", async () => {
     let beforeLogCalled = false;
     const opts = makeOpts({
-      nonBlocking: true,
+      writeMode: "background",
       storage: { write: async () => {} },
       beforeLog: async (entry) => {
         await new Promise((r) => setTimeout(r, 50));
@@ -252,10 +253,10 @@ describe("writeEntry", () => {
     expect(beforeLogCalled).toBe(true);
   });
 
-  test("nonBlocking write failure calls onWriteError", async () => {
+  test("background write failure calls onWriteError", async () => {
     const onWriteError = mock(() => {});
     const opts = makeOpts({
-      nonBlocking: true,
+      writeMode: "background",
       storage: {
         write: async () => {
           throw new Error("write failed");
@@ -270,7 +271,53 @@ describe("writeEntry", () => {
     await writeEntry(ctx, makeEntry(), opts, "auditLog");
     await Promise.all(ctx._backgroundTasks);
 
-    expect(onWriteError).toHaveBeenCalled();
+    expect(onWriteError).toHaveBeenCalledTimes(1);
+  });
+
+  test("sync-best-effort awaits the write but swallows failures", async () => {
+    const onWriteError = mock(() => {});
+    let writeResolved = false;
+    const opts = makeOpts({
+      writeMode: "sync-best-effort",
+      storage: {
+        write: async () => {
+          await new Promise((r) => setTimeout(r, 30));
+          writeResolved = true;
+          throw new Error("write failed");
+        },
+      },
+      onWriteError,
+    });
+    const ctx = makeCtx();
+
+    // Resolves without throwing (unlike sync-strict)...
+    await writeEntry(ctx, makeEntry(), opts, "auditLog");
+    // ...and the write was awaited inline (unlike background), so it already ran.
+    expect(writeResolved).toBe(true);
+    expect(onWriteError).toHaveBeenCalledTimes(1);
+  });
+
+  test("sync-strict awaits the write and throws on failure", async () => {
+    const onWriteError = mock(() => {});
+    let writeResolved = false;
+    const opts = makeOpts({
+      writeMode: "sync-strict",
+      storage: {
+        write: async () => {
+          await new Promise((r) => setTimeout(r, 30));
+          writeResolved = true;
+          throw new Error("write failed");
+        },
+      },
+      onWriteError,
+    });
+    const ctx = makeCtx();
+
+    await expect(
+      writeEntry(ctx, makeEntry(), opts, "auditLog"),
+    ).rejects.toThrow("write failed");
+    expect(writeResolved).toBe(true);
+    expect(onWriteError).toHaveBeenCalledTimes(1);
   });
 
   test("afterLog is called with the written entry", async () => {
