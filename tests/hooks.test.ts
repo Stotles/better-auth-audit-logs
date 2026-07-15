@@ -202,6 +202,20 @@ describe("hook execution", () => {
     expect(meta.requestBody).toBeDefined();
   });
 
+  test("before hook captures request body when configured", async () => {
+    const plugin = auditLog({ storage, capture: { requestBody: true } });
+    const [beforeHook] = plugin.hooks.before;
+
+    const arg = makeHandlerArg("/sign-out");
+    arg.body = { reason: "user-initiated" } as any;
+
+    await (beforeHook!.handler as Function)(arg);
+
+    expect(storage.entries).toHaveLength(1);
+    const meta = storage.entries[0]?.metadata as Record<string, unknown>;
+    expect(meta.requestBody).toEqual({ reason: "user-initiated" });
+  });
+
   test("after hook rethrows in sync-strict mode when storage write fails", async () => {
     const failStorage = {
       write: async () => { throw new Error("DB down"); },
