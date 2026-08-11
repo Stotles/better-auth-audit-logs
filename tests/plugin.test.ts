@@ -1,5 +1,6 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { auditLog } from "../src/plugin";
+import { MemoryStorage } from "../src/adapters/memory";
 import type { HookEndpointContext } from "@better-auth/core";
 
 const DEFAULT_BEFORE_PATHS = [
@@ -159,5 +160,147 @@ describe("auditLog plugin", () => {
     expect(() =>
       auditLog({ storage: { write: async () => {} } }),
     ).not.toThrow();
+  });
+});
+
+describe("pathConfig", () => {
+  function makeHandlerArg(path: string) {
+    return {
+      path,
+      request: new Request("http://localhost" + path),
+      headers: new Headers({ "user-agent": "test-agent" }),
+      body: undefined,
+      context: {
+        session: { user: { id: "user-1" } },
+        returned: undefined,
+        logger: {
+          error: mock(() => {}),
+          warn: mock(() => {}),
+          info: mock(() => {}),
+          debug: mock(() => {}),
+        },
+        runInBackground: () => {},
+        options: {},
+      },
+    };
+  }
+
+  /** Runs the after hook for each path and returns the entries written. */
+  async function captureAfter(
+    plugin: ReturnType<typeof auditLog>,
+    paths: string[],
+    storage: MemoryStorage,
+  ) {
+    const [afterHook] = plugin.hooks.after;
+    for (const path of paths) {
+      const arg = makeHandlerArg(path);
+      if (!afterHook!.matcher(arg as unknown as HookEndpointContext)) continue;
+      await (afterHook!.handler as Function)(arg);
+    }
+    return storage.entries;
+  }
+
+  test("overrides severity without narrowing capture", async () => {
+    const storage = new MemoryStorage();
+    const plugin = auditLog({
+      storage,
+      pathConfig: { "/sign-in/email": { severity: "critical" } },
+    });
+
+    const entries = await captureAfter(
+      plugin,
+      ["/sign-in/email", "/sign-up/email"],
+      storage,
+    );
+
+    // Both paths still audited — configuring one must not turn `pathConfig` into an allowlist.
+    expect(entries.map((e) => e.action)).toEqual([
+      "sign-in:email",
+      "sign-up:email",
+    ]);
+    expect(entries[0]?.severity).toBe("critical");
+    expect(entries[1]?.severity).toBe("low");
+  });
+
+  test("applies capture overrides without narrowing capture", async () => {
+    const storage = new MemoryStorage();
+    const plugin = auditLog({
+      storage,
+      pathConfig: { "/sign-in/email": { capture: { userAgent: false } } },
+    });
+
+    const entries = await captureAfter(
+      plugin,
+      ["/sign-in/email", "/sign-up/email"],
+      storage,
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]?.userAgent).toBeNull();
+    expect(entries[1]?.userAgent).toBe("test-agent");
+  });
+
+  test("does not affect which paths are captured", () => {
+    const plugin = auditLog({ pathConfig: { "/sign-in/email": { severity: "high" } } });
+    const [afterHook] = plugin.hooks.after;
+    const [beforeHook] = plugin.hooks.before;
+
+    expect(afterHook!.matcher(makeContext("/sign-up/email"))).toBe(true);
+    expect(beforeHook!.matcher(makeContext("/sign-out"))).toBe(true);
+  });
+
+  test("combined with paths: capture follows paths, config merges", async () => {
+    const storage = new MemoryStorage();
+    const plugin = auditLog({
+      storage,
+      paths: ["/sign-in/email"],
+      pathConfig: {
+        "/sign-in/email": { severity: "critical" },
+        // A path outside the allowlist stays uncaptured — config alone never opts a path in.
+        "/sign-up/email": { severity: "critical" },
+      },
+    });
+
+    const entries = await captureAfter(
+      plugin,
+      ["/sign-in/email", "/sign-up/email"],
+      storage,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.action).toBe("sign-in:email");
+    expect(entries[0]?.severity).toBe("critical");
+  });
+
+  test("pathConfig wins over an inline paths config, field by field", async () => {
+    const storage = new MemoryStorage();
+    const plugin = auditLog({
+      storage,
+      paths: [
+        {
+          path: "/sign-in/email",
+          config: { severity: "low", capture: { userAgent: false } },
+        },
+      ],
+      pathConfig: { "/sign-in/email": { severity: "critical" } },
+    });
+
+    const entries = await captureAfter(plugin, ["/sign-in/email"], storage);
+
+    expect(entries[0]?.severity).toBe("critical");
+    // Untouched by the override, so the `paths` entry still applies.
+    expect(entries[0]?.userAgent).toBeNull();
+  });
+
+  test("keys are matched exactly, not by prefix", async () => {
+    const storage = new MemoryStorage();
+    const plugin = auditLog({
+      storage,
+      pathConfig: { "/sign-in": { severity: "critical" } },
+    });
+
+    const entries = await captureAfter(plugin, ["/sign-in/email"], storage);
+
+    expect(entries[0]?.severity).toBe("medium");
   });
 });
