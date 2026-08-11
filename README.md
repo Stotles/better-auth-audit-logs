@@ -161,7 +161,7 @@ All auth `POST` endpoints are captured by default:
 >
 > **This applies to *every* path routed through the before hook — including when you invert the timing with [`afterPaths`](#configuration).** In that mode most paths log before the handler runs, so most of your entries will be `"requested"` with no observed outcome, and only the paths listed in `afterPaths` will record `"success"`/`"failed"`. Reach for `afterPaths` only when capturing the *request* (not its outcome) is what you want for the bulk of your paths.
 
-Severity is inferred automatically (`critical` for ban/impersonate, `high` for delete/revoke/failed sign-in, `medium` for sign-in/out, `low` for everything else) and can be overridden per-path.
+Severity is inferred automatically (`critical` for ban/impersonate, `high` for delete/revoke/failed sign-in/OAuth client changes, `medium` for sign-in/out and the OIDC provider flows, `low` for everything else) and can be overridden per-path with [`pathConfig`](#configuration). A `medium` action recorded as `failed` is promoted to `high`.
 
 ### Limitation: unexpected (non-`APIError`) failures aren't logged
 
@@ -205,11 +205,19 @@ auditLog({
   enabled: true,                 // disable without removing the plugin
   writeMode: "sync-best-effort", // how the write relates to the auth request (see Design decisions)
 
-  // restrict to specific paths (empty = capture all)
+  // restrict to specific paths (empty = capture all). This is an allowlist: once it's non-empty,
+  // every path not listed stops being audited.
   paths: [
     "/sign-in/email",
     { path: "/delete-user", config: { severity: "high", capture: { requestBody: true } } },
   ],
+
+  // per-path overrides that do NOT narrow what is captured. Keys are exact request paths, the
+  // same format as `paths`. Where a path appears in both, this wins field by field.
+  pathConfig: {
+    "/oauth2/authorize": { severity: "medium" },
+    "/change-email": { capture: { requestBody: true } },
+  },
 
   // paths logged *before* the handler runs (needed where the session is torn down mid-request,
   // so the userId can still be captured). Defaults to the session-destroying paths.

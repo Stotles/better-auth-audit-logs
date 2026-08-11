@@ -41,4 +41,45 @@ describe("inferSeverity", () => {
   test("matches partial action names", () => {
     expect(inferSeverity("two-factor:totp:verify", "success")).toBe("medium");
   });
+
+  describe("OIDC provider actions", () => {
+    const MEDIUM_ACTIONS = [
+      "oauth2:authorize",
+      "oauth2:token",
+      "oauth2:revoke",
+      "oauth2:end-session",
+      "oauth2:consent",
+    ];
+
+    for (const action of MEDIUM_ACTIONS) {
+      test(`medium for ${action} success`, () => {
+        expect(inferSeverity(action, "success")).toBe("medium");
+      });
+
+      test(`high for ${action} failure (escalation)`, () => {
+        expect(inferSeverity(action, "failed")).toBe("high");
+      });
+    }
+
+    test("low for oauth2:introspect — a read, and not escalated on failure", () => {
+      expect(inferSeverity("oauth2:introspect", "success")).toBe("low");
+      expect(inferSeverity("oauth2:introspect", "failed")).toBe("low");
+    });
+
+    test("high for client credential changes", () => {
+      expect(inferSeverity("oauth2:create-client", "success")).toBe("high");
+      expect(inferSeverity("oauth2:update-client", "success")).toBe("high");
+    });
+
+    test("oauth2:revoke is not matched by the revoke-session patterns", () => {
+      // `revoke-session`/`revoke-sessions` are session endpoints; an OAuth token revoke is its own
+      // action and must not inherit their high/medium mapping by substring.
+      expect(inferSeverity("oauth2:revoke", "success")).toBe("medium");
+      expect(inferSeverity("oauth2:end-session", "success")).toBe("medium");
+    });
+
+    test("unmapped oauth2 actions still fall through to low", () => {
+      expect(inferSeverity("oauth2:userinfo", "success")).toBe("low");
+    });
+  });
 });

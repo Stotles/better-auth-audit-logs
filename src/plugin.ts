@@ -49,6 +49,24 @@ function validateStorageAdapter(storage: AuditLogOptions["storage"]): void {
   }
 }
 
+/**
+ * Combines the config attached to a `paths` entry with the matching `pathConfig` entry, the latter
+ * winning field by field. Returns the source object untouched when only one side is present so the
+ * common case allocates nothing.
+ */
+function mergePathConfig(
+  fromPaths: PathConfig | undefined,
+  fromPathConfig: PathConfig | undefined,
+): PathConfig | undefined {
+  if (!fromPaths) return fromPathConfig;
+  if (!fromPathConfig) return fromPaths;
+
+  return {
+    severity: fromPathConfig.severity ?? fromPaths.severity,
+    capture: { ...fromPaths.capture, ...fromPathConfig.capture },
+  };
+}
+
 function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
   const pathsMap = new Map<string, PathConfig | undefined>();
   const hasPaths = (options?.paths?.length ?? 0) > 0;
@@ -79,6 +97,11 @@ function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
     }
   }
 
+  // Config only — kept out of `pathsMap` so configuring a path never narrows what is captured.
+  const pathConfigMap = new Map<string, PathConfig>(
+    Object.entries(options?.pathConfig ?? {}),
+  );
+
   // Resolve metadata limits: false = disabled, undefined = defaults, object = merge with defaults
   const metadataLimits =
     options?.metadataLimits === false
@@ -108,7 +131,8 @@ function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
     afterLog: options?.afterLog,
     onWriteError: options?.onWriteError,
     shouldCapture: (path: string) => !hasPaths || pathsMap.has(path),
-    getPathConfig: (path: string) => pathsMap.get(path),
+    getPathConfig: (path: string) =>
+      mergePathConfig(pathsMap.get(path), pathConfigMap.get(path)),
   };
 }
 
