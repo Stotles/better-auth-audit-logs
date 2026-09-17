@@ -139,11 +139,29 @@ export interface AuditLogOptions {
    */
   storage?: AuditLogStorage;
   /**
-   * An array of paths where the audit log will be written after the request is processed.
+   * Capture **allowlist**: the raw request paths to audit, matched exactly
+   * (e.g. `"/oauth2/authorize"`, not the normalised action `"oauth2:authorize"`).
    *
-   * If not provided or it's an empty array, the audit log will be written for all paths.
+   * If not provided or empty, every path is audited. As soon as it is non-empty, every path not
+   * listed here stops being audited.
+   *
+   * This only decides *what* is captured. Per-path settings live in {@link pathConfig}.
    */
-  paths?: (string | { path: string; config?: PathConfig })[];
+  paths?: string[];
+  /**
+   * Per-path overrides (severity, capture) that do **not** affect which paths are captured.
+   *
+   * Applies to every captured path it matches, whether {@link paths} is set or not. Use this to
+   * override the inferred severity of an endpoint without turning `paths` into an allowlist.
+   *
+   * Keys are raw request paths matched exactly, the same format as {@link paths}.
+   *
+   * @example
+   * ```ts
+   * auditLog({ pathConfig: { "/oauth2/authorize": { severity: "medium" } } })
+   * ```
+   */
+  pathConfig?: Record<string, PathConfig>;
   /**
    * An array of paths where the audit log will be written before the request is processed.
    * This is needed on paths which remove the user from the request context (e.g. logout)
@@ -216,6 +234,8 @@ export interface ResolvedOptions {
   beforeLog: AuditLogOptions["beforeLog"];
   afterLog: AuditLogOptions["afterLog"];
   onWriteError: AuditLogOptions["onWriteError"];
+  /** Whether the path is audited at all. Reads `paths` only, never `pathConfig`. */
   shouldCapture: (path: string) => boolean;
+  /** Per-path overrides, from `pathConfig`. Never narrows what `shouldCapture` allows. */
   getPathConfig: (path: string) => PathConfig | undefined;
 }
