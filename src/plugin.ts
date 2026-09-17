@@ -49,27 +49,8 @@ function validateStorageAdapter(storage: AuditLogOptions["storage"]): void {
   }
 }
 
-/**
- * Combines the config attached to a `paths` entry with the matching `pathConfig` entry, the latter
- * winning field by field. Returns the source object untouched when only one side is present so the
- * common case allocates nothing.
- */
-function mergePathConfig(
-  fromPaths: PathConfig | undefined,
-  fromPathConfig: PathConfig | undefined,
-): PathConfig | undefined {
-  if (!fromPaths) return fromPathConfig;
-  if (!fromPathConfig) return fromPaths;
-
-  return {
-    severity: fromPathConfig.severity ?? fromPaths.severity,
-    capture: { ...fromPaths.capture, ...fromPathConfig.capture },
-  };
-}
-
 function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
-  const pathsMap = new Map<string, PathConfig | undefined>();
-  const hasPaths = (options?.paths?.length ?? 0) > 0;
+  const capturedPaths = new Set(options?.paths ?? []);
 
   const { beforePaths, afterPaths } = options ?? {};
   if (beforePaths !== undefined && afterPaths !== undefined) {
@@ -89,15 +70,7 @@ function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
       ? (path: string) => !afterPaths.some((p) => path.startsWith(p))
       : (path: string) => beforePathList.some((p) => path.startsWith(p));
 
-  for (const p of options?.paths ?? []) {
-    if (typeof p === "string") {
-      pathsMap.set(p, undefined);
-    } else {
-      pathsMap.set(p.path, p.config);
-    }
-  }
-
-  // Config only — kept out of `pathsMap` so configuring a path never narrows what is captured.
+  // Config only — kept out of `capturedPaths` so configuring a path never narrows what is captured.
   const pathConfigMap = new Map<string, PathConfig>(
     Object.entries(options?.pathConfig ?? {}),
   );
@@ -130,9 +103,8 @@ function resolveOptions(options?: AuditLogOptions): ResolvedOptions {
     beforeLog: options?.beforeLog,
     afterLog: options?.afterLog,
     onWriteError: options?.onWriteError,
-    shouldCapture: (path: string) => !hasPaths || pathsMap.has(path),
-    getPathConfig: (path: string) =>
-      mergePathConfig(pathsMap.get(path), pathConfigMap.get(path)),
+    shouldCapture: (path: string) => capturedPaths.size === 0 || capturedPaths.has(path),
+    getPathConfig: (path: string) => pathConfigMap.get(path),
   };
 }
 

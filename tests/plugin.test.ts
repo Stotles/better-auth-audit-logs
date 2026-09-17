@@ -249,7 +249,7 @@ describe("pathConfig", () => {
     expect(beforeHook!.matcher(makeContext("/sign-out"))).toBe(true);
   });
 
-  test("combined with paths: capture follows paths, config merges", async () => {
+  test("combined with paths: capture follows paths, config applies", async () => {
     const storage = new MemoryStorage();
     const plugin = auditLog({
       storage,
@@ -272,24 +272,17 @@ describe("pathConfig", () => {
     expect(entries[0]?.severity).toBe("critical");
   });
 
-  test("pathConfig wins over an inline paths config, field by field", async () => {
+  // `paths` carries no settings of its own — it only says what is captured — so a path listed there
+  // and nowhere else keeps the inferred severity and the global capture defaults.
+  test("a path in `paths` alone gets no config from being listed", async () => {
     const storage = new MemoryStorage();
-    const plugin = auditLog({
-      storage,
-      paths: [
-        {
-          path: "/sign-in/email",
-          config: { severity: "low", capture: { userAgent: false } },
-        },
-      ],
-      pathConfig: { "/sign-in/email": { severity: "critical" } },
-    });
+    const plugin = auditLog({ storage, paths: ["/sign-in/email"] });
 
     const entries = await captureAfter(plugin, ["/sign-in/email"], storage);
 
-    expect(entries[0]?.severity).toBe("critical");
-    // Untouched by the override, so the `paths` entry still applies.
-    expect(entries[0]?.userAgent).toBeNull();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.severity).toBe("medium");
+    expect(entries[0]?.userAgent).not.toBeNull();
   });
 
   test("keys are matched exactly, not by prefix", async () => {

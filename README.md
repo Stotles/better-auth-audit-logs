@@ -205,17 +205,15 @@ auditLog({
   enabled: true,                 // disable without removing the plugin
   writeMode: "sync-best-effort", // how the write relates to the auth request (see Design decisions)
 
-  // restrict to specific paths (empty = capture all). This is an allowlist: once it's non-empty,
-  // every path not listed stops being audited.
-  paths: [
-    "/sign-in/email",
-    { path: "/delete-user", config: { severity: "high", capture: { requestBody: true } } },
-  ],
+  // restrict to specific paths (empty = capture all). This is an allowlist and nothing else: once
+  // it's non-empty, every path not listed stops being audited.
+  paths: ["/sign-in/email", "/delete-user"],
 
-  // per-path overrides that do NOT narrow what is captured. Keys are exact request paths, the
-  // same format as `paths`. Where a path appears in both, this wins field by field.
+  // per-path settings, which never narrow what is captured. Keys are exact request paths, the
+  // same format as `paths`. Listing a path here does not make it captured — that's `paths`.
   pathConfig: {
     "/oauth2/authorize": { severity: "medium" },
+    "/delete-user": { severity: "high", capture: { requestBody: true } },
     "/change-email": { capture: { requestBody: true } },
   },
 
